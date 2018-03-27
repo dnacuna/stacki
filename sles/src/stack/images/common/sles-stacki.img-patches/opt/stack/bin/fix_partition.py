@@ -11,7 +11,7 @@ try:
 except ModuleNotFoundError:
 	# If the file isn't there to import then we didn't do a nukedisks=false with labels
 	sys.exit(0)
-except ImportErr:
+except ImportError:
 	# If the variable isn't there to import then we didn't do a nukedisks=false with labels
 	sys.exit(0)
 
@@ -33,13 +33,10 @@ def label_partition(partition):
 	uuid = partition['new_uuid'].split('=')[1]
 	if 'ext' in partition['fstype'].lower():
 		return_code = subprocess.call(['e2label', '/dev/disk/by-uuid/%s' % uuid, '%s' % label])
-		print(return_code)
-		if return_code == 0:
-			edit_fstab(label, uuid)
 	if 'xfs' in partition['fstype'].lower():
 		# This better be unmount or we will have issues.
 		# edit the partition
-		return_code = subprocess.call(['xfs_admin', ' -L', '"%s"' % label, '/dev/disk/by-uuid/%s' % uuid])
+		return_code = subprocess.call(['xfs_admin', '-L', '"%s"' % label, '/dev/disk/by-uuid/%s' % uuid])
 	return return_code
 
 

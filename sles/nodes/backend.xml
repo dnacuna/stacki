@@ -28,7 +28,7 @@ cp /tmp/stack_site/__init__.py /mnt/tmp/stack_site/
 </stack:script>
 
 <stack:script stack:stage="install-post" stack:chroot="false">
-/opt/stack/bin/fix-partition.py
+/opt/stack/bin/fix_fstab.py
 </stack:script>
 
 <stack:script stack:stage="install-post">
