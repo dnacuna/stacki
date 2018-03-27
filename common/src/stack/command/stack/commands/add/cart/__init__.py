@@ -141,9 +141,7 @@ class Command(stack.commands.CartArgumentProcessor,
 	def unpack_cart(self, cart, cartfile, cartsdir):
 		with tarfile.open(cartfile,'r|*') as tar:
 			if self.check_cart(cartfile) == True:
-#				print("Unpacking....%s" % cart)
 				tar.extractall(cartsdir)
-#				print("\nUnpacked!")
 				return True
 			else:
 				print("That's no cart tarfile!")
