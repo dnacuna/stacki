@@ -9,8 +9,12 @@ try:
 	sys.path.append('/tmp')
 	from fstab_info import partitions_to_label
 except ModuleNotFoundError:
-	# If the file isn't there to import then we didn't do a nukedisks=false
+	# If the file isn't there to import then we didn't do a nukedisks=false with labels
 	sys.exit(0)
+except ImportErr:
+	# If the variable isn't there to import then we didn't do a nukedisks=false with labels
+	sys.exit(0)
+
 
 
 def label_partition(partition):

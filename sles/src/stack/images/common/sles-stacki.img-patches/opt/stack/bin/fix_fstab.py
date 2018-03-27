@@ -10,7 +10,7 @@ try:
 	sys.path.append('/tmp')
 	from fstab_info import old_fstab
 except ModuleNotFoundError:
-	# If the file isn't there to import then we didn't do a nukedisks=false
+	# If the file isn't there to import then we didn't do a nukedisks=false with labels
 	sys.exit(0)
 except ImportError:
 	sys.exit(0)
@@ -103,7 +103,7 @@ def edit_fstab(find, replace):
 	with fileinput.FileInput('/mnt/etc/fstab', inplace=True) as fstab:
 		for line in fstab:
 			if find in line:
-				print(line.replace('UUID=%s' % find, 'LABEL=%s' % replace), end='')
+				print(line.replace(find, replace), end='')
 			# leave the line alone
 			else:
 				print(line, end='')
