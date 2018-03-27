@@ -4,14 +4,14 @@ Replaces UUID with LABEL and applies label to relevant partition
 """
 import sys
 import subprocess
-import os
-import fileinput
+
 try:
 	sys.path.append('/tmp')
 	from fstab_info import partitions_to_label
 except ModuleNotFoundError:
 	# If the file isn't there to import then we didn't do a nukedisks=false
 	sys.exit(0)
+
 
 def label_partition(partition):
 	"""Determine the filesystem type and take appropriate steps to add a label.
@@ -24,6 +24,7 @@ def label_partition(partition):
 	Only handles xfs and ext formats.
 	The btrfs will remain with it's UUID mount reference
 	"""
+	return_code = 0
 	label = partition['device'].split('=')[1]
 	uuid = partition['new_uuid'].split('=')[1]
 	if 'ext' in partition['fstype'].lower():
@@ -35,8 +36,9 @@ def label_partition(partition):
 		# This better be unmount or we will have issues.
 		# edit the partition
 		return_code = subprocess.call(['xfs_admin', ' -L', '"%s"' % label, '/dev/disk/by-uuid/%s' % uuid])
+	return return_code
 
 
-for partition in partitions_to_label:
-	if len(partition) == 5:
-		label_partition(partition)
+for each_partition in partitions_to_label:
+	if len(each_partition) == 5:
+		label_partition(each_partition)

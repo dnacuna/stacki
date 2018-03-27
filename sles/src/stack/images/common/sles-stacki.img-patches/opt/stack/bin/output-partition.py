@@ -29,7 +29,7 @@ def getNukes(host_disks, s):
 	if s and s.upper() in [ 'ALL', 'YES', 'Y', 'TRUE', '1' ]:
 		disks = host_disks
 	elif s and s.upper() in ['NONE', 'NO', 'N', 'FALSE', '0' ]:
-                disks = []
+		disks = []
 	elif s:
 		#
 		# validate the user input for nukedisks -- that is, make sure 
@@ -142,6 +142,8 @@ def outputPartition(p, initialize):
 
 	if label:
 		if mnt and (create != 'true' and format.lower() == 'false'):
+			xml_partitions.append('\t\t\t\t<mountby config:type="symbol">label</mountby>')
+		if mnt and initialize.lower() == 'true':
 			xml_partitions.append('\t\t\t\t<mountby config:type="symbol">label</mountby>')
 		if create == 'true':
 			xml_partitions.append('\t\t\t\t<label>%s</label>' % label)
