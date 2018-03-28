@@ -74,13 +74,13 @@ def get_host_fstab():
 
 def get_existing_labels(yast_fstab, existing_fstab):
 	"""Compare the two fstab inputs to determine which didn't have their LABEL= applied from autoyast.
-	Returns a new list of dictionaries that contains the new UUID and the fstype"""
+	Returns a new list of dictionaries that contains the new identifier and the fstype"""
 	no_labels = []
 	existing_labels = []
 	new_data = {}
 
 	for mount in yast_fstab:
-		if 'uuid' in mount['device'].lower():
+		if 'label' not in mount['device'].lower():
 			# Create list to check against old_fstab
 			no_labels.append(mount['mountpoint'])
 			# Capture new data based on mountpoint key

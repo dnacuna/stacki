@@ -30,13 +30,18 @@ def label_partition(partition):
 	"""
 	return_code = 0
 	label = partition['device'].split('=')[1]
-	uuid = partition['new_uuid'].split('=')[1]
+	#In sles 11 it uses the /dev/disk/by-id/
+	new_id = partition['new_uuid']
+	#In sles 12 it uses the uuid=, we need to add the /dev/disk/by-uuid onto the string
+	if 'uuid=' in  partition['new_uuid'].lower():
+		new_id = partition['new_uuid'].split('=')[1]
+		new_id = '/dev/disk/by-uuid/%s' % new_id
 	if 'ext' in partition['fstype'].lower():
-		return_code = subprocess.call(['e2label', '/dev/disk/by-uuid/%s' % uuid, '%s' % label])
+		return_code = subprocess.call(['e2label', new_id, '%s' % label])
 	if 'xfs' in partition['fstype'].lower():
 		# This better be unmount or we will have issues.
 		# edit the partition
-		return_code = subprocess.call(['xfs_admin', '-L', '"%s"' % label, '/dev/disk/by-uuid/%s' % uuid])
+		return_code = subprocess.call(['xfs_admin', '-L', '%s' % label, new_id])
 	return return_code
 
 
