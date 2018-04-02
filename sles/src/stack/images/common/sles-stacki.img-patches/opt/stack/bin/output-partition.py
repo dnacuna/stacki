@@ -1,52 +1,60 @@
 #!/opt/stack/bin/python3 -E
+"""Output the /tmp/partition.xml for autoyast to create the partitions as requested.
+
+When we do a fresh install, the fix_fstab.py and fix_partition.py are not needed
+
+When we want to do a reinstall and keep data disks (nukedisks=False) we need to utilize the previous fstab.
+The fix_fstab.py runs during post-partitioning to edit the /mnt/etc/fstab file remount the needed mountpoints
+The fix_partition.py run post-install to edit the partition labels as needed to match the new /etc/fstab.
+"""
 
 import shlex
 import subprocess
 import sys
 import os
 import time
-
+import xml.etree.ElementTree as ElementTree
+from shutil import copy
 sys.path.append('/tmp')
-from stack_site import attributes, csv_partitions
-
-sys.path.append('/opt/stack/lib')
+from stack_site import attributes, csv_partitions;sys.path.append('/opt/stack/lib')
 from stacki_default_part import sles
+from stack.bool import str2bool
 
-import stack
 
-##
-## globals
-##
+#
+# globals
+#
 host_partitions = []
+fs_info = "/tmp/fstab_info"
+partitioning_config = ElementTree.Element("partitioning")
+partitioning_config.set('xmlns', "http://www.suse.com/1.0/yast2ns")
+partitioning_config.set('xmlns:config', 'http://www.suse.com/1.0/configns')
+partitioning_config.set('config:type', 'list')
+#
+# functions
+#
 
-##
-## functions
-##
-
-def getNukes(host_disks, s):
+def get_nukes(host_disks, to_nuke, nuke_list):
+	"""Return a list of disks to nuke, as the use may want to nuke /dev/sdc, but not /dev/sdb."""
 	disks = []
 
-	if s and s.upper() in [ 'ALL', 'YES', 'Y', 'TRUE', '1' ]:
+	if to_nuke:
 		disks = host_disks
-	elif s and s.upper() in ['NONE', 'NO', 'N', 'FALSE', '0' ]:
-		disks = []
-	elif s:
-		#
-		# validate the user input for nukedisks -- that is, make sure 
+	elif not to_nuke:
+		# validate the user input for nuke_list -- that is, make sure
 		# the disks specified by the user are actually on this machine
-		#
-		for disk in s.split():
+		for disk in nuke_list.split():
 			if disk in host_disks:
 				disks.append(disk)
+		# If the nuke_list = false, 0, FALSE, etc;
+		# then no matches will be found and empty list returned
 
 	return disks
 
 
-def nukeIt(disk):
-	#
-	# Clear out the master boot record of the drive
-	#
-	FNULL = open(os.devnull, 'w')
+def nuke_it(disk):
+	""" Clear out the master boot record of the drive."""
+	dev_null = open(os.devnull, 'w')
 
 	if 'disklabel' in attributes:
 		disklabel = attributes['disklabel']
@@ -54,79 +62,84 @@ def nukeIt(disk):
 		disklabel = 'gpt'
 
 	cmd = 'dd if=/dev/zero of=/dev/%s count=512 bs=1' % disk
-	subprocess.call(shlex.split(cmd),
-		stdout = FNULL, stderr = subprocess.STDOUT)
+	subprocess.call(shlex.split(cmd), stdout=dev_null, stderr=subprocess.STDOUT)
 
 	cmd = 'parted -s /dev/%s mklabel %s' % (disk, disklabel)
-	subprocess.call(shlex.split(cmd),
-		stdout = FNULL, stderr = subprocess.STDOUT)
+	subprocess.call(shlex.split(cmd), stdout=dev_null, stderr=subprocess.STDOUT)
 
-	FNULL.close()
+	dev_null.close()
 	return
 
 
-def outputPartition(p, initialize):
+def output_partition(partition, initialize, element_partition_list):
+	"""Build partition xml for the partition provided.
+	Return True if there is enough data to build partition, else return False"""
 	xml_partitions = []
-
-	if initialize.lower() == 'true':
-		create = 'true'
-	else:
-		create = 'false'
 
 	#
 	# if there is no mountpoint and we are not creating this partition,
 	# then there is nothing to do
 	#
-	mnt = p['mountpoint']
+	mnt = partition['mountpoint']
 	if not mnt or mnt == 'None':
 		mnt = None
 
-	if create == 'false' and not mnt:
-		return xml_partitions
+	if not initialize and not mnt:
+		return False
 
 	#
 	# special case for '/', '/var' and '/boot'
 	#
-	if mnt in [ '/', '/var', '/boot', '/boot/efi' ]:
-		format = 'true'
+	if mnt in ['/', '/var', '/boot', '/boot/efi']:
+		format_partition = True
 	else:
-		if initialize.lower() == 'true':
-			format = 'true'
-		else:
-			format = 'false'
+		format_partition = initialize
+	element_partition = ElementTree.SubElement(element_partition_list, 'partition')
+	# xml_partitions.append('\t\t\t<partition>')
 
-	xml_partitions.append('\t\t\t<partition>')
-
-	if initialize.lower() == 'true':
-		xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % create)
+	if initialize:
+		element_create = ElementTree.SubElement(element_partition, 'create')
+		element_create.text = '%s' % str(initialize).lower()
+		element_create.set('config:type', 'boolean')
+		# xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % initialize)
 
 	if mnt:
-		xml_partitions.append('\t\t\t\t<mount>%s</mount>' % mnt)
+		ElementTree.SubElement(element_partition, 'mount').text = '%s' % mnt
+		# xml_partitions.append('\t\t\t\t<mount>%s</mount>' % mnt)
 
-	if create == 'true':
-		if p['size'] == 0:
-			xml_partitions.append('\t\t\t\t<size>max</size>')
+	if initialize:
+		if partition['size'] == 0:
+			ElementTree.SubElement(element_partition, 'size').text = 'max'
+			# xml_partitions.append('\t\t\t\t<size>max</size>')
 		else:
-			xml_partitions.append('\t\t\t\t<size>%dM</size>' %  p['size'])
+			ElementTree.SubElement(element_partition, 'size').text = '%dM' % partition['size']
+			# xml_partitions.append('\t\t\t\t<size>%dM</size>' % partition['size'])
 
-	if p['fstype']:
-		if format.lower() == 'true':
-			xml_partitions.append('\t\t\t\t<filesystem config:type="symbol">%s</filesystem>' % p['fstype'])
-		xml_partitions.append('\t\t\t\t<format config:type="boolean">%s</format>' % format)
+	if partition['fstype']:
+		if format_partition:
+			element_filesystem = ElementTree.SubElement(element_partition, 'filesystem')
+			element_filesystem.text = '%s' % partition['fstype']
+			element_filesystem.set('config:type', 'symbol')
+			# xml_partitions.append('\t\t\t\t<filesystem config:type="symbol">%s</filesystem>' % partition['fstype'])
+
+		element_format = ElementTree.SubElement(element_partition, 'format')
+		element_format.text = '%s' % str(format_partition).lower()
+		element_format.set('config:type', 'boolean')
+		# xml_partitions.append('\t\t\t\t<format config:type="boolean">%s</format>' % format_partition)
 
 	#
 	# see if there is a label or 'asprimary' associated with this partition
 	#
 	label = None
-	primary = 'false'
+	primary = False
 	partition_id = None
 
-	fsargs = shlex.split(p['options'])
+	fsargs = shlex.split(partition['options'])
 	for arg in fsargs:
 		if '--label=' in arg:
 			label = arg.split('=')[1]
 		elif '--asprimary' in arg:
-			primary = 'true'
+			primary = True
 		elif '--partition_id=' in arg:
 			partition_id = arg.split('=')[1]
 
@@ -134,49 +147,69 @@ def outputPartition(p, initialize):
 		if not label:
 			label = "rootfs"
 
-	if primary == 'true' or (mnt in [ '/', '/boot', '/boot/efi' ] and create == 'true'):
-		xml_partitions.append('\t\t\t\t<partition_type>primary</partition_type>')
+	if primary or (mnt in ['/', '/boot', '/boot/efi'] and initialize):
+		ElementTree.SubElement(element_partition, 'partition_type').text = 'primary'
+		# xml_partitions.append('\t\t\t\t<partition_type>primary</partition_type>')
 
-	if create == 'true' and partition_id:
-		xml_partitions.append('\t\t\t\t<partition_id config:type="integer">%s</partition_id>' % partition_id)
+	if initialize and partition_id:
+		element_partition_id = ElementTree.SubElement(element_partition, 'partition_id')
+		element_partition_id.text = '%s' % partition_id
+		element_partition_id.set('config:type', 'integer')
+		# xml_partitions.append('\t\t\t\t<partition_id config:type="integer">%s</partition_id>' % partition_id)
 
 	if label:
-		if mnt and (create != 'true' and format.lower() == 'false'):
-			xml_partitions.append('\t\t\t\t<mountby config:type="symbol">label</mountby>')
-		if mnt and initialize.lower() == 'true':
-			xml_partitions.append('\t\t\t\t<mountby config:type="symbol">label</mountby>')
-		if create == 'true':
-			xml_partitions.append('\t\t\t\t<label>%s</label>' % label)
+		if mnt and (not initialize and not format_partition):
+			element_mountby = ElementTree.SubElement(element_partition, 'mountby')
+			element_mountby.text = 'label'
+			element_mountby.set('config:type', 'symbol')
+			# xml_partitions.append('\t\t\t\t<mountby config:type="symbol">label</mountby>')
+		if mnt and initialize:
+			element_mountby = ElementTree.SubElement(element_partition, 'mountby')
+			element_mountby.text = 'label'
+			element_mountby.set('config:type', 'symbol')
+			# xml_partitions.append('\t\t\t\t<mountby config:type="symbol">label</mountby>')
+		if initialize:
+			ElementTree.SubElement(element_partition, 'label').text = '%s' % label
+			# xml_partitions.append('\t\t\t\t<label>%s</label>' % label)
 		else:
-			xml_partitions.append('\t\t\t\t<partition_nr config:type="integer">%s</partition_nr>' % p['partnumber'])
-			xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % create)
+			element_partition_nr = ElementTree.SubElement(element_partition, 'partition_nr')
+			element_partition_nr.text = '%s' % partition['partnumber']
+			element_partition_nr.set('config:type', 'integer')
+			element_create = ElementTree.SubElement(element_partition, 'create')
+			element_create.text = '%s' % str(initialize).lower()
+			element_create.set('config:type', 'boolean')
+
+			# xml_partitions.append('\t\t\t\t<partition_nr config:type="integer">%s</partition_nr>' % partition['partnumber'])
+			# xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % initialize)
 
 	else:
 		if mnt:
-			xml_partitions.append('\t\t\t\t<mountby config:type="symbol">uuid</mountby>')
+			element_mountby = ElementTree.SubElement(element_partition, 'mountby')
+			element_mountby.text = 'uuid'
+			element_mountby.set('config:type', 'symbol')
+			# xml_partitions.append('\t\t\t\t<mountby config:type="symbol">uuid</mountby>')
 
-		if format == 'false' and 'uuid' in p:
-			xml_partitions.append('\t\t\t\t<uuid>%s</uuid>' % p['uuid'])
-		elif format == 'true' and create == 'false' \
-				and 'partnumber' in p:
-
+		if not format_partition and 'uuid' in partition:
+			ElementTree.SubElement(element_partition, 'uuid').text = '%s' % partition['uuid']
+			# xml_partitions.append('\t\t\t\t<uuid>%s</uuid>' % partition['uuid'])
+		elif format_partition and not initialize and 'partnumber' in partition:
 			#
 			# we are reusing a partition, and we are reformatting
 			# it which will create a new UUID, so we need to tell
 			# the installer which physical partition this mountpoint
 			# is associated with
 			#
-			xml_partitions.append('\t\t\t\t<partition_nr config:type="integer">%s</partition_nr>' % p['partnumber'])
+			element_partition_nr = ElementTree.SubElement(element_partition, 'partition_nr')
+			element_partition_nr.text = '%s' % partition['partnumber']
+			element_partition_nr.set('config:type', 'integer')
+			# xml_partitions.append('\t\t\t\t<partition_nr config:type="integer">%s</partition_nr>' % partition['partnumber'])
 		
-	xml_partitions.append('\t\t\t</partition>')
+	# xml_partitions.append('\t\t\t</partition>')
+	return len(element_partition) > 0
 
-	return xml_partitions
 
-
-def sortPartId(entry):
-	#
-	# make sure 'None' partid's go at the end of the list
-	#
+def sort_part_id(entry):
+	""" make sure 'None' partid's go at the end of the list"""
 	try:
 		key = entry['partid']
 		if not key:
@@ -187,17 +220,17 @@ def sortPartId(entry):
 	return key
 
 
-def doPartitions(disk, initialize):
-	import operator
-
+def do_partitions(disk, initialize, element_partition_list):
+	"""Determine how to output the partition xml for the disk provided.
+	If any partitions can be created for the disk, return True"""
 	xml_partitions = []
 
-	if initialize.lower() == 'true':
+	if initialize:
 		#
 		# since we are wiping this disk, use the partitions from
 		# the CSV
 		#
-		csv_partitions.sort(key = sortPartId)
+		csv_partitions.sort(key=sort_part_id)
 		partitions = csv_partitions
 	else:
 		#
@@ -207,51 +240,51 @@ def doPartitions(disk, initialize):
 		#
 		partitions = host_partitions
 
-	for p in partitions:
-		if p['device'] != disk:
+	for each_partition in partitions:
+		if each_partition['device'] != disk:
 			continue
-
-		xml_part = outputPartition(p, initialize)
-		if xml_part:
-			xml_partitions += xml_part
-
-	return xml_partitions
+		xml_partitions.append(output_partition(each_partition, initialize, element_partition_list))
+		# print(ElementTree.tostring(partitioning_config).decode())
+	return any(xml_partitions)
 
 
-def outputDisk(disk, initialize):
-	xml_partitions = doPartitions(disk, initialize)
+def output_disk(disk, initialize):
+	"""Output the disk and partition xml for the disk provided."""
+	if 'disklabel' in attributes:
+		disklabel = attributes['disklabel']
+	else:
+		disklabel = 'gpt'
+	element_drive = ElementTree.SubElement(partitioning_config, 'drive')
+	ElementTree.SubElement(element_drive, 'device').text = '/dev/%s' % disk
+	ElementTree.SubElement(element_drive, 'disklabel').text = '%s' % disklabel
+	element_init = ElementTree.SubElement(element_drive, 'initialize')
+	element_init.text = '%s' % str(initialize).lower()
+	element_init.set('config:type', 'boolean')
+	element_partition_list = ElementTree.SubElement(element_drive, 'partitions')
+	element_partition_list.set('config:type', 'list')
 
-	#
-	# only output XML configuration for this disk if there is partitioning
-	# configuration for this disk
-	#
-	if xml_partitions:
-		if 'disklabel' in attributes:
-			disklabel = attributes['disklabel']
-		else:
-			disklabel = 'gpt'
+	if not do_partitions(disk, initialize, element_partition_list):
+		# only output XML configuration for this disk if there is partitioning
+		# configuration for this disk
+		partitioning_config.remove(element_drive)
 
-		print('\t<drive>')
-		print('\t\t<device>/dev/%s</device>' % disk)
-		print('\t\t<disklabel>%s</disklabel>' % disklabel)
-		print('\t\t<initialize config:type="boolean">%s</initialize>' % initialize)
-		print('\t\t<partitions config:type="list">')
-		for p in xml_partitions:
-			print('%s' % p)
-		print('\t\t</partitions>')
-
-		print('\t</drive>')
+	# print('\t<drive>')
+	# print('\t\t<device>/dev/%s</device>' % disk)
+	# print('\t\t<disklabel>%s</disklabel>' % disklabel)
+	# print('\t\t<initialize config:type="boolean">%s</initialize>' % initialize)
+	# print('\t\t<partitions config:type="list">')
+	# for p in xml_partitions:
+	# 	print('%s' % p)
 
 	return
 
 
-def getHostDisks():
+def get_host_disks():
 	"""Returns list of disks on this machine"""
 
 	disks = []
-	p = subprocess.Popen([ 'lsblk', '-nio', 'NAME,RM,RO' ],
-		stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-		stderr=subprocess.PIPE)
+	cmd = ['lsblk', '-nio', 'NAME,RM,RO']
+	p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	o = p.communicate()[0]
 	out = o.decode()
 	
@@ -265,14 +298,14 @@ def getHostDisks():
 		#
 		arr = l.split()
 		removable = arr[1].strip()
-		readonly  = arr[2].strip()
+		readonly = arr[2].strip()
 
 		if removable == "1" or readonly == "1":
 			continue
 
 		diskname = arr[0].strip()
 
-		if diskname[0] in [ '|' , '`' ]:
+		if diskname[0] in ['|', '`']:
 			continue
 
 		disks.append(diskname)
@@ -280,15 +313,14 @@ def getHostDisks():
 	return disks
 
 
-def getHostPartitionDevices(disk):
+def get_host_partition_devices(disk):
 	"""
 	Returns the device names of all the partitions on a specific disk
 	"""
 
 	devices = []
-	p = subprocess.Popen([ 'lsblk', '-nrio', 'NAME', '/dev/%s' % disk ],
-		stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-		stderr=subprocess.PIPE)
+	cmd = ['lsblk', '-nrio', 'NAME', '/dev/%s' % disk]
+	p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	o = p.communicate()[0]
 	out = o.decode()
 	
@@ -309,7 +341,8 @@ def getHostPartitionDevices(disk):
 	return devices
 
 
-def getHostMountpoint(host_fstab, uuid, label):
+def get_host_mount_point(host_fstab, uuid, label):
+	"""Determine how the disk will be mounted, via UUID, LABEL, or not mounted."""
 	for part in host_fstab:
 		if part['device'] == 'UUID=%s' % uuid:
 			return part['mountpoint']
@@ -319,13 +352,10 @@ def getHostMountpoint(host_fstab, uuid, label):
 	return None
 
 
-def getDiskPartNumber(disk):
-	partnumber = 0
-
-	p = subprocess.Popen([ 'blkid', '-o', 'export',
-		'-s', 'PART_ENTRY_NUMBER', '-p', '/dev/%s' % disk ],
-		stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-		stderr=subprocess.PIPE)
+def get_disk_part_number(partition_device):
+	"""Return the partition number for the provided partition."""
+	cmd = ['blkid', '-o', 'export', '-s', 'PART_ENTRY_NUMBER', '-p', '/dev/%s' % partition_device]
+	p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	o = p.communicate()[0]
 	out = o.decode()
 
@@ -337,13 +367,11 @@ def getDiskPartNumber(disk):
 				return partnumber
 
 
-def getHostPartitions(host_disks, host_fstab):
+def get_host_partitions(host_disks, host_fstab):
+	"""Determine the partition info for the existing partition on the host's attached disks."""
 	for disk in host_disks:
-		p = subprocess.Popen([ 'lsblk', '-nrbo', 
-			'NAME,SIZE,UUID,LABEL,MOUNTPOINT,FSTYPE',
-			'/dev/%s' % disk ],
-			stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-			stderr=subprocess.PIPE)
+		cmd = ['lsblk', '-nrbo', 'NAME,SIZE,UUID,LABEL,MOUNTPOINT,FSTYPE', '/dev/%s' % disk]
+		p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 		o = p.communicate()[0]
 		out = o.decode()
 		
@@ -354,17 +382,15 @@ def getHostPartitions(host_disks, host_fstab):
 
 			arr = l.split(' ')
 
-			#
 			# ignore the "whole" disk device (we are interested
 			# only in partitions)
-			#
 			diskname = arr[0]
 			if diskname == disk:
 				continue
 
 			try:
 				size = int(int(arr[1]) / (1024 * 1024))
-			except:
+			except TypeError or ValueError:
 				size = 0
 
 			uuid = arr[2]
@@ -373,10 +399,9 @@ def getHostPartitions(host_disks, host_fstab):
 			fstype = arr[5]
 
 			if not mountpoint:
-				mountpoint = getHostMountpoint(host_fstab,
-					uuid, label)
+				mountpoint = get_host_mount_point(host_fstab, uuid, label)
 
-			partnumber = getDiskPartNumber(diskname)
+			partnumber = get_disk_part_number(diskname)
 
 			disk_partitions = {}
 			disk_partitions['device'] = disk
@@ -399,7 +424,7 @@ def getHostPartitions(host_disks, host_fstab):
 	return host_partitions
 
 
-def getHostFstab(disks):
+def get_host_fstab(disks):
 	"""Get contents of /etc/fstab by mounting all disks
 	and checking if /etc/fstab exists.
 	"""
@@ -416,9 +441,8 @@ def getHostFstab(disks):
 		#
 		# Let's go look at all the disks for /etc/fstab
 		#
-		for d in getHostPartitionDevices(disk):
-			os.system('mount /dev/%s %s' % (d, mountpoint) + \
-				' > /dev/null 2>&1')
+		for d in get_host_partition_devices(disk):
+			os.system('mount /dev/%s %s' % (d, mountpoint) + ' > /dev/null 2>&1')
 
 			if os.path.exists(fstab):
 				file = open(fstab)
@@ -426,19 +450,22 @@ def getHostFstab(disks):
 				for line in file.readlines():
 					entry = {}
 
-					l = line.split()
-					if len(l) < 3:
+					split_line = line.split()
+					if len(split_line) < 3:
 						continue
 
-					entry['device'] = l[0].strip()
-					entry['mountpoint'] = l[1].strip()
-					entry['fstype'] = l[2].strip()
+					entry['device'] = split_line[0].strip()
+					entry['mountpoint'] = split_line[1].strip()
+					entry['fstype'] = split_line[2].strip()
 
 					host_fstab.append(entry)
 
 				file.close()
-
-			os.system('umount %s 2> /dev/null' % (mountpoint))
+				# We may need the fstab file for post-install
+				if not os.path.exists(fs_info):
+					os.makedirs(fs_info)
+				copy(fstab, fs_info)
+			os.system('umount %s 2> /dev/null' % mountpoint)
 
 			if host_fstab:
 				break
@@ -452,129 +479,122 @@ def getHostFstab(disks):
 
 	return host_fstab
 
-##
-## MAIN
-##
 
-host_disks = getHostDisks()
+def prettify(element):
+	"""Return a pretty-printed XML string for the Element."""
+	import xml.dom.minidom
+	rough_string = ElementTree.tostring(element, 'utf-8')
+	reparsed = xml.dom.minidom.parseString(rough_string)
+	return reparsed.toprettyxml(indent="\t")
 
-count = 5
-while count > 0:
-	if len(host_disks) == 0:
-		time.sleep(1)
-		count = count - 1
-		host_disks = getHostDisks()
+
+def main():
+	"""Where the magic begins."""
+	global host_partitions
+	global csv_partitions
+	host_disks = get_host_disks()
+
+	count = 5
+	while count > 0:
+		if len(host_disks) == 0:
+			time.sleep(1)
+			count -= 1
+			host_disks = get_host_disks()
+		else:
+			break
+
+	host_fstab = get_host_fstab(host_disks)
+	host_partitions = get_host_partitions(host_disks, host_fstab)
+
+	if not csv_partitions:
+		if attributes['os.version'] == "11.x" and attributes['os'] == "sles":
+			ostype = "sles11"
+		elif attributes['os.version'] == "12.x" and attributes['os'] == "sles":
+			ostype = "sles12"
+		else:
+			# Give ostype some default
+			ostype = "sles11"
+
+		if os.path.exists('/sys/firmware/efi'):
+			default = 'uefi'
+		else:
+			default = 'default'
+
+		var = '%s_%s' % (ostype, default)
+		if hasattr(sles, var):
+			parts = getattr(sles, var)
+		else:
+			parts = getattr(sles, 'default')
+
+		if 'boot_device' in attributes:
+			bootdisk = attributes['boot_device']
+		else:
+			bootdisk = host_disks[0]
+
+		csv_partitions = []
+		partid = 1
+
+		for m, s, f in parts:
+			csv_partitions.append(
+				{
+					'partid': partid,
+					'scope': 'global',
+					'device': bootdisk,
+					'mountpoint': m,
+					'size': s,
+					'fstype': f,
+					'options': ''
+				})
+
+			partid += 1
+
+	#
+	# there are 2 scenarios:
+	#
+	# 1) nukedisks == True
+	# 2) nukedisks == False
+	# 3) nukedisks == a list of disks to nuke <-- Not sure we actually handle this yet.
+	#
+	# 1 is easy -- nuke the disks and recreate the partitions specified in the
+	# "partitions" variable
+	#
+	# For 2, reformat "/", "/boot" (if present) and "/var" on the boot disk, then
+	# reconnect all other discovered partitions.
+
+	# if host_fstab is an empty list, turning on nukedisks=True" to avoid SLES defaults
+	if host_fstab == []:
+		nuke_disks = True
+	elif 'nukedisks' in attributes:
+		nuke_disks = str2bool(attributes['nukedisks'])
 	else:
-		break
+		nuke_disks = False
 
-host_fstab = getHostFstab(host_disks)
-host_partitions = getHostPartitions(host_disks, host_fstab)
+	if not nuke_disks:
+		# Need output of the existing fstab to be utilized for post-install script.
+		if not os.path.exists(fs_info):
+			os.makedirs(fs_info)
+		with open(str(fs_info + '/__init__.py'), 'w') as fstab_info:
+			fstab_info.write('old_fstab = %s\n\n' % host_fstab)
 
-if not csv_partitions:
-	parts = []
-	if attributes['os.version'] == "11.x" and attributes['os'] == "sles":
-		ostype = "sles11"
-	elif attributes['os.version'] == "12.x" and attributes['os'] == "sles":
-		ostype = "sles12"
-	else:
-		# Give ostype some default
-		ostype = "sles11"
+	#
+	# process all nuked disks first
+	#
+	nuke_list = get_nukes(host_disks, nuke_disks, attributes['nukedisks'])
 
-	if os.path.exists('/sys/firmware/efi'):
-		default = 'uefi'
-	else:
-		default = 'default'
+	for disk in nuke_list:
+		nuke_it(disk)
 
-	var = '%s_%s' % (ostype, default)
-	if hasattr(sles, var):
-		parts = getattr(sles, var)
-	else:
-		parts = getattr(sles, 'default')
+		initialize = True
+		output_disk(disk, initialize)
+	#
+	# now process all non-nuked disks
+	#
+	initialize = False
+	for disk in host_disks:
+		if disk not in nuke_list:
+			output_disk(disk, initialize)
 
-	if 'boot_device' in attributes:
-		bootdisk = attributes['boot_device']
-	else:
-		bootdisk = host_disks[0]
-
-	csv_partitions = []
-	partid = 1
-
-	for m, s, f in parts:
-		csv_partitions.append(
-			{
-				'partid': partid,
-				'scope': 'global',
-				'device': bootdisk,
-				'mountpoint': m,
-				'size': s,
-				'fstype': f, 
-				'options': ''
-			})
-
-		partid += 1
-
-print('<?xml version="1.0"?>')
-print('')
-
-#
-# there are 2 scenarios:
-#
-#	1) nukedisks == true
-#	2) nukedisks == false
-#
-# 1 is easy -- nuke the disks and recreate the partitions specified in the
-# "partitions" variable
-#
-# For 2, reformat "/", "/boot" (if present) and "/var" on the boot disk, then
-# reconnect all other discovered partitions.
-#
-# if host_fstab is an empty list, turning on nukedisks=true" to avoid SLES defaults
-if host_fstab == []:
-	nukedisks = 'true'
-elif 'nukedisks' in attributes:
-	nukedisks = attributes['nukedisks']
-else:
-	nukedisks = 'false'
-
-if nukedisks.lower() == 'false':
-	# Need output of the existing fstab to be utilized for post-install script.
-	if not os.path.exists('/tmp/fstab_info'):
-		os.makedirs('/tmp/fstab_info')
-	with open('/tmp/fstab_info/__init__.py', 'w') as fstab_info:
-		fstab_info.write('old_fstab = %s\n\n' % host_fstab)
+	print(prettify(partitioning_config))
 
 
-# Check how many disks we are partitioning
-device_set = set()
-for each in csv_partitions:
-	device_set.add(each['device'])
-
-# Giving up hope on AutoYast not-initializing data disks.
-# (https://jira.td.teradata.com/jira/browse/OSEDEV-2132)
-# We need to only touch the disk with "/", "/boot" (if present) and "/var"
-
-
-print('<partitioning xmlns="http://www.suse.com/1.0/yast2ns" xmlns:config="http://www.suse.com/1.0/configns" config:type="list">')
-
-#
-# process all nuked disks first
-#
-nukelist = getNukes(host_disks, nukedisks)
-
-for disk in nukelist:
-	nukeIt(disk)
-
-	initialize = 'true'
-	outputDisk(disk, initialize)
-
-#
-# now process all non-nuked disks
-#
-initialize = 'false'
-for disk in host_disks:
-	if disk not in nukelist:
-		outputDisk(disk, initialize)	
-
-
-print('</partitioning>')
-print('')
+main()
