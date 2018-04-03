@@ -1,6 +1,12 @@
 #!/opt/stack/bin/python3 -E
+#
+# @copyright@
+# Copyright (c) 2006 - 2018 Teradata
+# All rights reserved. Stacki(r) v5.x stacki.com
+# https://github.com/Teradata/stacki/blob/master/LICENSE.txt
+# @copyright@
 """Fixes the autoyast partitioning if nukedisks=False
-Replaces UUID with LABEL and applies label to relevant partition
+Rewrites the needed partition information as provided by the partitions_to_label
 """
 import sys
 import subprocess

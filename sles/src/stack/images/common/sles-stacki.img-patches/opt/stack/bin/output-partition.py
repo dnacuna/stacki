@@ -1,4 +1,10 @@
 #!/opt/stack/bin/python3 -E
+#
+# @copyright@
+# Copyright (c) 2006 - 2018 Teradata
+# All rights reserved. Stacki(r) v5.x stacki.com
+# https://github.com/Teradata/stacki/blob/master/LICENSE.txt
+# @copyright@
 """Output the /tmp/partition.xml for autoyast to create the partitions as requested.
 
 When we do a fresh install, the fix_fstab.py and fix_partition.py are not needed
@@ -14,9 +20,11 @@ import sys
 import os
 import time
 import xml.etree.ElementTree as ElementTree
+import xml.dom.minidom
 from shutil import copy
 sys.path.append('/tmp')
-from stack_site import attributes, csv_partitions;sys.path.append('/opt/stack/lib')
+from stack_site import attributes, csv_partitions
+sys.path.append('/opt/stack/lib')
 from stacki_default_part import sles
 from stack.bool import str2bool
 
@@ -71,6 +79,84 @@ def nuke_it(disk):
 	return
 
 
+def partition_init_path(element_partition, initialize, partition, partition_id):
+
+	if initialize:
+		element_create = ElementTree.SubElement(element_partition, 'create')
+		element_create.text = '%s' % str(initialize).lower()
+		element_create.set('config:type', 'boolean')
+		# xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % initialize)
+
+	if initialize:
+		if partition['size'] == 0:
+			ElementTree.SubElement(element_partition, 'size').text = 'max'
+			# xml_partitions.append('\t\t\t\t<size>max</size>')
+		else:
+			ElementTree.SubElement(element_partition, 'size').text = '%dM' % partition['size']
+			# xml_partitions.append('\t\t\t\t<size>%dM</size>' % partition['size'])
+
+	if initialize and partition_id:
+		element_partition_id = ElementTree.SubElement(element_partition, 'partition_id')
+		element_partition_id.text = '%s' % partition_id
+		element_partition_id.set('config:type', 'integer')
+		# xml_partitions.append('\t\t\t\t<partition_id config:type="integer">%s</partition_id>' % partition_id)
+
+def partition_mount_label(element_partition, initialize, partition, mnt, label):
+	if mnt:
+		element_mountby = ElementTree.SubElement(element_partition, 'mountby')
+		element_mountby.text = 'label'
+		element_mountby.set('config:type', 'symbol')
+		# xml_partitions.append('\t\t\t\t<mountby config:type="symbol">label</mountby>')
+	if initialize:
+		ElementTree.SubElement(element_partition, 'label').text = '%s' % label
+		# xml_partitions.append('\t\t\t\t<label>%s</label>' % label)
+	else:
+		element_partition_nr = ElementTree.SubElement(element_partition, 'partition_nr')
+		element_partition_nr.text = '%s' % partition['partnumber']
+		element_partition_nr.set('config:type', 'integer')
+		element_create = ElementTree.SubElement(element_partition, 'create')
+		element_create.text = '%s' % str(initialize).lower()
+		element_create.set('config:type', 'boolean')
+
+		# xml_partitions.append('\t\t\t\t<partition_nr config:type="integer">%s</partition_nr>' % partition['partnumber'])
+		# xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % initialize)
+
+def partition_mount_uuid(element_partition, initialize, partition, mnt, format_partition):
+	if mnt:
+		element_mountby = ElementTree.SubElement(element_partition, 'mountby')
+		element_mountby.text = 'uuid'
+		element_mountby.set('config:type', 'symbol')
+		# xml_partitions.append('\t\t\t\t<mountby config:type="symbol">uuid</mountby>')
+
+	if not format_partition and 'uuid' in partition:
+		ElementTree.SubElement(element_partition, 'uuid').text = '%s' % partition['uuid']
+		# xml_partitions.append('\t\t\t\t<uuid>%s</uuid>' % partition['uuid'])
+	elif format_partition and not initialize and 'partnumber' in partition:
+		#
+		# we are reusing a partition, and we are reformatting
+		# it which will create a new UUID, so we need to tell
+		# the installer which physical partition this mountpoint
+		# is associated with
+		#
+		element_partition_nr = ElementTree.SubElement(element_partition, 'partition_nr')
+		element_partition_nr.text = '%s' % partition['partnumber']
+		element_partition_nr.set('config:type', 'integer')
+		# xml_partitions.append('\t\t\t\t<partition_nr config:type="integer">%s</partition_nr>' % partition['partnumber'])
+
+def partition_fs_type(element_partition, initialize, partition, format_partition):
+	if format_partition:
+		element_filesystem = ElementTree.SubElement(element_partition, 'filesystem')
+		element_filesystem.text = '%s' % partition['fstype']
+		element_filesystem.set('config:type', 'symbol')
+	# xml_partitions.append('\t\t\t\t<filesystem config:type="symbol">%s</filesystem>' % partition['fstype'])
+
+	element_format = ElementTree.SubElement(element_partition, 'format')
+	element_format.text = '%s' % str(format_partition).lower()
+	element_format.set('config:type', 'boolean')
+
+
+# xml_partitions.append('\t\t\t\t<format config:type="boolean">%s</format>' % format_partition)
+
 def output_partition(partition, initialize, element_partition_list):
 	"""Build partition xml for the partition provided.
 	Return True if there is enough data to build partition, else return False"""
@@ -86,47 +172,6 @@ def output_partition(partition, initialize, element_partition_list):
 
 	if not initialize and not mnt:
 		return False
-
-	#
-	# special case for '/', '/var' and '/boot'
-	#
-	if mnt in ['/', '/var', '/boot', '/boot/efi']:
-		format_partition = True
-	else:
-		format_partition = initialize
-	element_partition = ElementTree.SubElement(element_partition_list, 'partition')
-	# xml_partitions.append('\t\t\t<partition>')
-
-	if initialize:
-		element_create = ElementTree.SubElement(element_partition, 'create')
-		element_create.text = '%s' % str(initialize).lower()
-		element_create.set('config:type', 'boolean')
-		# xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % initialize)
-
-	if mnt:
-		ElementTree.SubElement(element_partition, 'mount').text = '%s' % mnt
-		# xml_partitions.append('\t\t\t\t<mount>%s</mount>' % mnt)
-
-	if initialize:
-		if partition['size'] == 0:
-			ElementTree.SubElement(element_partition, 'size').text = 'max'
-			# xml_partitions.append('\t\t\t\t<size>max</size>')
-		else:
-			ElementTree.SubElement(element_partition, 'size').text = '%dM' % partition['size']
-			# xml_partitions.append('\t\t\t\t<size>%dM</size>' % partition['size'])
-
-	if partition['fstype']:
-		if format_partition:
-			element_filesystem = ElementTree.SubElement(element_partition, 'filesystem')
-			element_filesystem.text = '%s' % partition['fstype']
-			element_filesystem.set('config:type', 'symbol')
-			# xml_partitions.append('\t\t\t\t<filesystem config:type="symbol">%s</filesystem>' % partition['fstype'])
-
-		element_format = ElementTree.SubElement(element_partition, 'format')
-		element_format.text = '%s' % str(format_partition).lower()
-		element_format.set('config:type', 'boolean')
-		# xml_partitions.append('\t\t\t\t<format config:type="boolean">%s</format>' % format_partition)
-
 	#
 	# see if there is a label or 'asprimary' associated with this partition
 	#
@@ -146,64 +191,31 @@ def output_partition(partition, initialize, element_partition_list):
 	if mnt == '/':
 		if not label:
 			label = "rootfs"
-
+	#
+	# special case for '/', '/var' and '/boot'
+	#
+	if mnt in ['/', '/var', '/boot', '/boot/efi']:
+		format_partition = True
+	else:
+		format_partition = initialize
+	element_partition = ElementTree.SubElement(element_partition_list, 'partition')
+	# xml_partitions.append('\t\t\t<partition>')
+	partition_init_path(element_partition, initialize, partition, partition_id)
+	if mnt:
+		ElementTree.SubElement(element_partition, 'mount').text = '%s' % mnt
+		# xml_partitions.append('\t\t\t\t<mount>%s</mount>' % mnt)
+	if partition['fstype']:
+		partition_fs_type(element_partition, initialize, partition, format_partition)
 	if primary or (mnt in ['/', '/boot', '/boot/efi'] and initialize):
 		ElementTree.SubElement(element_partition, 'partition_type').text = 'primary'
 		# xml_partitions.append('\t\t\t\t<partition_type>primary</partition_type>')
-
-	if initialize and partition_id:
-		element_partition_id = ElementTree.SubElement(element_partition, 'partition_id')
-		element_partition_id.text = '%s' % partition_id
-		element_partition_id.set('config:type', 'integer')
-		# xml_partitions.append('\t\t\t\t<partition_id config:type="integer">%s</partition_id>' % partition_id)
-
 	if label:
-		if mnt and (not initialize and not format_partition):
-			element_mountby = ElementTree.SubElement(element_partition, 'mountby')
-			element_mountby.text = 'label'
-			element_mountby.set('config:type', 'symbol')
-			# xml_partitions.append('\t\t\t\t<mountby config:type="symbol">label</mountby>')
-		if mnt and initialize:
-			element_mountby = ElementTree.SubElement(element_partition, 'mountby')
-			element_mountby.text = 'label'
-			element_mountby.set('config:type', 'symbol')
-			# xml_partitions.append('\t\t\t\t<mountby config:type="symbol">label</mountby>')
-		if initialize:
-			ElementTree.SubElement(element_partition, 'label').text = '%s' % label
-			# xml_partitions.append('\t\t\t\t<label>%s</label>' % label)
-		else:
-			element_partition_nr = ElementTree.SubElement(element_partition, 'partition_nr')
-			element_partition_nr.text = '%s' % partition['partnumber']
-			element_partition_nr.set('config:type', 'integer')
-			element_create = ElementTree.SubElement(element_partition, 'create')
-			element_create.text = '%s' % str(initialize).lower()
-			element_create.set('config:type', 'boolean')
-
-			# xml_partitions.append('\t\t\t\t<partition_nr config:type="integer">%s</partition_nr>' % partition['partnumber'])
-			# xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % initialize)
-
+		partition_mount_label(element_partition, initialize, partition, mnt, label)
 	else:
-		if mnt:
-			element_mountby = ElementTree.SubElement(element_partition, 'mountby')
-			element_mountby.text = 'uuid'
-			element_mountby.set('config:type', 'symbol')
-			# xml_partitions.append('\t\t\t\t<mountby config:type="symbol">uuid</mountby>')
-
-		if not format_partition and 'uuid' in partition:
-			ElementTree.SubElement(element_partition, 'uuid').text = '%s' % partition['uuid']
-			# xml_partitions.append('\t\t\t\t<uuid>%s</uuid>' % partition['uuid'])
-		elif format_partition and not initialize and 'partnumber' in partition:
-			#
-			# we are reusing a partition, and we are reformatting
-			# it which will create a new UUID, so we need to tell
-			# the installer which physical partition this mountpoint
-			# is associated with
-			#
-			element_partition_nr = ElementTree.SubElement(element_partition, 'partition_nr')
-			element_partition_nr.text = '%s' % partition['partnumber']
-			element_partition_nr.set('config:type', 'integer')
-			# xml_partitions.append('\t\t\t\t<partition_nr config:type="integer">%s</partition_nr>' % partition['partnumber'])
-		
+		partition_mount_uuid(element_partition, initialize, partition, mnt, format_partition)
+	# During a reinstall, drop the partitions that aren't being formatted.
+	if not initialize and not format_partition:
+		element_partition_list.remove(element_partition)
 	# xml_partitions.append('\t\t\t</partition>')
 	return len(element_partition) > 0
 
@@ -464,7 +476,7 @@ def get_host_fstab(disks):
 				# We may need the fstab file for post-install
 				if not os.path.exists(fs_info):
 					os.makedirs(fs_info)
-				copy(fstab, fs_info)
+				shutil.copy(fstab, fs_info)
 			os.system('umount %s 2> /dev/null' % mountpoint)
 
 			if host_fstab:
@@ -482,7 +494,6 @@ def get_host_fstab(disks):
 
 def prettify(element):
 	"""Return a pretty-printed XML string for the Element."""
-	import xml.dom.minidom
 	rough_string = ElementTree.tostring(element, 'utf-8')
 	reparsed = xml.dom.minidom.parseString(rough_string)
 	return reparsed.toprettyxml(indent="\t")

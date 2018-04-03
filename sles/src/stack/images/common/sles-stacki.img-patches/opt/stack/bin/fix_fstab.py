@@ -1,11 +1,23 @@
 #!/opt/stack/bin/python3 -E
-"""Fixes the autoyast partitioning if nukedisks=False
-Replaces UUID with LABEL and applies label to relevant partition
+#
+# @copyright@
+# Copyright (c) 2006 - 2018 Teradata
+# All rights reserved. Stacki(r) v5.x stacki.com
+# https://github.com/Teradata/stacki/blob/master/LICENSE.txt
+# @copyright@
+"""
+Called after autoyast does partition, but before any RPMs are installed to the chroot environment.
+Fixes the autoyast partitioning if nukedisks=False
+Replaces UUID with LABEL then saves variable 'partitions_to_label' for fix_partition to use later
+Merges the old fstab that contains unformatted existing partitions with the new fstab from yast.
+Then mounts the old partitions that were not formatted from autoyast so they are available during install.
 """
 import sys
 import subprocess
 import os
 import fileinput
+import re
+import shutil
 try:
 	sys.path.append('/tmp')
 	from fstab_info import old_fstab
@@ -14,6 +26,10 @@ except ModuleNotFoundError:
 	sys.exit(0)
 except ImportError:
 	sys.exit(0)
+
+old_fstab_file = '/tmp/fstab_info/fstab'
+new_fstab_file = '/mnt/etc/fstab'
+tmp_fstab_file = '/tmp/fstab_info/tmp_fstab'
 
 
 def get_host_partition_devices(detected_disks):
@@ -49,10 +65,8 @@ def get_host_fstab():
 	and checking if /etc/fstab exists.
 	"""
 	host_fstab = []
-	fstab = '/mnt/etc/fstab'
-
-	if os.path.exists(fstab):
-		file = open(fstab)
+	if os.path.exists(new_fstab_file):
+		file = open(new_fstab_file)
 
 		for line in file.readlines():
 			entry = {}
@@ -98,25 +112,77 @@ def get_existing_labels(yast_fstab, existing_fstab):
 	return existing_labels
 
 
-def edit_fstab(find, replace):
+def edit_new_fstab(partitions_to_label):
 	"""Edit the /mnt/etc/fstab to replace the UUID= with LABEL=."""
-	with fileinput.FileInput('/mnt/etc/fstab', inplace=True) as fstab:
+	for partition in partitions_to_label:
+		if len(partition) == 5:
+			find = partition['new_uuid']
+			replace = partition['device']
+			with fileinput.FileInput(old_fstab_file, inplace=True) as fstab:
+				for line in fstab:
+					if find in line:
+						print(line.replace(find, replace), end='')
+					# leave the line alone
+					else:
+						print(line, end='')
+
+
+def edit_old_fstab(yast_fstab, existing_fstab):
+	"""Remove any partitions from the existing fstab if they exist in the yast generated fstab.
+	We determine that they already exist by keying off the mount point."""
+	new_mount_points = []
+	for entry in yast_fstab:
+		new_mount_points.append(entry['mountpoint'])
+	for entry in existing_fstab:
+		if entry['mountpoint'] in new_mount_points:
+			remove = r'^' + re.escape(entry['device']) + r'.*' + re.escape(entry['mountpoint']) + r'.*'
+			# remove = r'^' + entry['device'] + '.*' + entry['mountpoint'] + '.*'
+			with fileinput.FileInput(old_fstab_file, inplace=True) as fstab:
+				for line in fstab:
+					if not re.search(remove, line):
+						print(line, end='')
+
+
+def merge_fstabs():
+	"""After editing the old and new fstab, merge them together to contain all needed data."""
+	with open(tmp_fstab_file, 'w+b') as new_file:
+		for each_file in [new_fstab_file, old_fstab_file]:
+			with open(each_file, 'rb') as old_file:
+				shutil.copyfileobj(old_file, new_file)
+
+
+def mount_old_partitions():
+	"""Mount the old partitions that didn't exist in fstab before."""
+	commands = []
+	with open(old_fstab_file) as fstab:
 		for line in fstab:
-			if find in line:
-				print(line.replace(find, replace), end='')
-			# leave the line alone
-			else:
-				print(line, end='')
+			split_line = line.split()
+			if '/' not in split_line[1]:
+				# Skip partitions we can't actually mount
+				continue
+			commands.append(['mount', split_line[0], '/mnt%s' % split_line[1]])
+	# Sort the commands by the mount point, this will make sure higher up mount is already mounted before a sub-mount
+	sorted(commands, key=lambda x: x[2])
+	for cmd in commands:
+		if not os.path.exists(cmd[2]):
+			os.makedirs(cmd[2])
+		subprocess.call(cmd)
 
 
-new_fstab = get_host_fstab()
-partitions_to_label = get_existing_labels(new_fstab, old_fstab)
-# We may have to order the for loop if we have mount points within mount points on xfs.
-for partition in partitions_to_label:
-	if len(partition) == 5:
-		edit_fstab(partition['new_uuid'],  partition['device'])
-# Need output of the partitions_to_label to be utilized for post autoyast script.
-if not os.path.exists('/tmp/fstab_info'):
-	os.makedirs('/tmp/fstab_info')
-with open('/tmp/fstab_info/__init__.py', 'a') as fstab_info:
-	fstab_info.write('partitions_to_label = %s\n\n' % partitions_to_label)
+def main():
+	"""Main function."""
+	new_fstab = get_host_fstab()
+	partitions_to_label = get_existing_labels(new_fstab, old_fstab)
+	edit_old_fstab(new_fstab, old_fstab)
+	edit_new_fstab(partitions_to_label)
+	merge_fstabs()
+	mount_old_partitions()
+	shutil.copy(tmp_fstab_file, new_fstab_file)
+	# Need output of the partitions_to_label to be utilized for post autoyast script.
+	if not os.path.exists('/tmp/fstab_info'):
+		os.makedirs('/tmp/fstab_info')
+	with open('/tmp/fstab_info/__init__.py', 'a') as fstab_info:
+		fstab_info.write('partitions_to_label = %s\n\n' % partitions_to_label)
+
+
+main()
