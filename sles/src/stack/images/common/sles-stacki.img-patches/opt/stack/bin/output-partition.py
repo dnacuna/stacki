@@ -476,7 +476,7 @@ def get_host_fstab(disks):
 				# We may need the fstab file for post-install
 				if not os.path.exists(fs_info):
 					os.makedirs(fs_info)
-				shutil.copy(fstab, fs_info)
+				copy(fstab, fs_info)
 			os.system('umount %s 2> /dev/null' % mountpoint)
 
 			if host_fstab:
