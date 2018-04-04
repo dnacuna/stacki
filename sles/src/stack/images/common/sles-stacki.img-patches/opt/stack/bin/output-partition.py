@@ -81,11 +81,10 @@ def nuke_it(disk):
 
 def partition_init_path(element_partition, initialize, partition, partition_id):
 
-	if initialize:
-		element_create = ElementTree.SubElement(element_partition, 'create')
-		element_create.text = '%s' % str(initialize).lower()
-		element_create.set('config:type', 'boolean')
-		# xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % initialize)
+	element_create = ElementTree.SubElement(element_partition, 'create')
+	element_create.text = '%s' % str(initialize).lower()
+	element_create.set('config:type', 'boolean')
+	# xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % initialize)
 
 	if initialize:
 		if partition['size'] == 0:
@@ -114,9 +113,6 @@ def partition_mount_label(element_partition, initialize, partition, mnt, label):
 		element_partition_nr = ElementTree.SubElement(element_partition, 'partition_nr')
 		element_partition_nr.text = '%s' % partition['partnumber']
 		element_partition_nr.set('config:type', 'integer')
-		element_create = ElementTree.SubElement(element_partition, 'create')
-		element_create.text = '%s' % str(initialize).lower()
-		element_create.set('config:type', 'boolean')
 
 		# xml_partitions.append('\t\t\t\t<partition_nr config:type="integer">%s</partition_nr>' % partition['partnumber'])
 		# xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % initialize)
