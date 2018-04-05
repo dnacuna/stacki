@@ -206,7 +206,9 @@ def output_partition(partition, initialize, element_partition_list):
 	if primary or (mnt in ['/', '/boot', '/boot/efi'] and initialize):
 		ElementTree.SubElement(element_partition, 'partition_type').text = 'primary'
 		# xml_partitions.append('\t\t\t\t<partition_type>primary</partition_type>')
-	if label:
+	# If we are formatting the partition, and not initializing the whole drive, use UUID instead of label.
+	# Autoyast tries to use the old label for bootloader, after it already formatted and removed the label.
+	if label and not (format_partition and not initialize):
 		partition_mount_label(element_partition, initialize, partition, mnt, label)
 	else:
 		partition_mount_uuid(element_partition, initialize, partition, mnt, format_partition)
