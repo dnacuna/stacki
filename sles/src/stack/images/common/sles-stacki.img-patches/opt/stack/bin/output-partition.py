@@ -7,12 +7,12 @@
 # @copyright@
 """Output the /tmp/partition.xml for autoyast to create the partitions as requested.
 
-When we do a fresh install, the parse_partition.py and fix_partition.py are not needed
+When we do a fresh install, the fix_fstab.py and fix_partition.py are not needed
 
 When we want to do a reinstall and keep data disks (nukedisks=False) we need to utilize the previous fstab.
-The parse_partition.py runs during install-post to gather data for fix_partitions.py
-The fix_partitions.py run post-install to edit the /mnt/etc/fstab file and edit the partition labels as needed to match
-the new /etc/fstab.
+The fix_fstab.py runs during install-post to gather data for fix_partitions.py and edit the /mnt/etc/fstab file
+The fix_partitions.py runs during F10-a-fix-partitions to edit the partition labels as needed to match the new
+/mnt/etc/fstab.
 """
 
 import shlex
