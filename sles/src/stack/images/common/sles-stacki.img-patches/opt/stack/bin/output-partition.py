@@ -12,6 +12,8 @@ from stack_site import attributes, csv_partitions
 sys.path.append('/opt/stack/lib')
 from stacki_default_part import sles
 
+from stack.bool import str2bool
+
 import stack
 
 ##
@@ -471,16 +473,49 @@ host_disks = getHostDisks()
 
 #
 # wait up to one minute for the disk devices to be exported to linux after a hardware
-# disk array controller has been reconfigured
+# disk array controller has been reconfigured, and this occurs only if nukecontroller is true
 #
-count = 60
-while count > 0:
-	if len(host_disks) == 0:
+if 'nukecontroller' in attributes:
+	nukecontroller = str2bool(attributes['nukecontroller'])
+else:
+	nukecontroller = False
+
+if nukecontroller:
+	#
+	# get a list of 'required' disks. we'll get this info from the partitioning CSV
+	# if no CSV was specified, then requireddisks will be empty (and that is ok, because
+	# we'll do default partitioning).
+	#
+	requireddisks = set()
+	if csv_partitions:
+		for p in csv_partitions:
+			if p['device']:
+				requireddisks.add(p['device'])
+
+	count = 60
+	while count > 0:
+		if not requireddisks:
+			#
+			# no CSV was specified, so just wait for at least one disk to appear.
+			#
+			if len(host_disks) > 0:
+				break
+		else:
+			founddisks = set()
+			for disk in host_disks:
+				founddisks.add(disk)
+
+			#
+			# if the union of requireddisks and founddisks is the same set as
+			# requireddisks, then all the disks specified in the CSV are
+			# present on this system.
+			#
+			if requireddisks & founddisks == requireddisks:
+				break
+
 		time.sleep(1)
 		count = count - 1
 		host_disks = getHostDisks()
-	else:
-		break
 
 host_fstab = getHostFstab(host_disks)
 host_partitions = getHostPartitions(host_disks, host_fstab)
