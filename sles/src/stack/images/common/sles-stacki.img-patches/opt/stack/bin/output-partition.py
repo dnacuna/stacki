@@ -210,8 +210,8 @@ def output_partition(partition, initialize, element_partition_list):
 	else:
 		partition_mount_uuid(element_partition, initialize, partition, mnt, format_partition)
 	# During a reinstall, drop the partitions that aren't being formatted.
-	if not initialize and not format_partition:
-		element_partition_list.remove(element_partition)
+	# if not initialize and not format_partition:
+	# 	element_partition_list.remove(element_partition)
 	# xml_partitions.append('\t\t\t</partition>')
 	return len(element_partition) > 0
 

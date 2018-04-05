@@ -151,22 +151,69 @@ def merge_fstabs():
 				shutil.copyfileobj(old_file, new_file)
 
 
-def mount_old_partitions():
-	"""Mount the old partitions that didn't exist in fstab before."""
-	commands = []
-	with open(old_fstab_file) as fstab:
-		for line in fstab:
-			split_line = line.split()
-			if '/' not in split_line[1]:
-				# Skip partitions we can't actually mount
-				continue
-			commands.append(['mount', split_line[0], '/mnt%s' % split_line[1]])
-	# Sort the commands by the mount point, this will make sure higher up mount is already mounted before a sub-mount
-	sorted(commands, key=lambda x: x[2])
-	for cmd in commands:
-		if not os.path.exists(cmd[2]):
-			os.makedirs(cmd[2])
-		subprocess.call(cmd)
+# def umount_partitions():
+# 	"""Mount the old partitions that didn't exist in fstab before."""
+# 	commands = []
+# 	with open(tmp_fstab_file) as fstab:
+# 		for line in fstab:
+# 			split_line = line.split()
+# 			if '/' not in split_line[1]:
+# 				# Skip partitions we can't actually mount
+# 				continue
+# 			commands.append(['umount', split_line[0], '/mnt%s' % split_line[1]])
+# 	# Sort the commands by the mount point, this will make sure higher up mount is already mounted before a sub-mount
+# 	sorted_cmds = sorted(commands, key=lambda x: x[2])
+# 	# Reversing command sequence since we are un-mounting.
+# 	for cmd in reversed(sorted_cmds):
+# 		if not os.path.exists(cmd[2]):
+# 			os.makedirs(cmd[2])
+# 		subprocess.call(cmd)
+#
+#
+# def mount_partitions():
+# 	"""Mount the old partitions that didn't exist in fstab before."""
+# 	commands = []
+# 	with open(tmp_fstab_file) as fstab:
+# 		for line in fstab:
+# 			split_line = line.split()
+# 			if '/' not in split_line[1]:
+# 				# Skip partitions we can't actually mount
+# 				continue
+# 			commands.append(['mount', split_line[0], '/mnt%s' % split_line[1]])
+# 	# Sort the commands by the mount point, this will make sure higher up mount is already mounted before a sub-mount
+# 		sorted_cmds = sorted(commands, key=lambda x: x[2])
+# 	for cmd in sorted_cmds:
+# 		if not os.path.exists(cmd[2]):
+# 			os.makedirs(cmd[2])
+# 		subprocess.call(cmd)
+
+#
+# def label_partition(partition):
+# 	"""Determine the filesystem type and take appropriate steps to add a label.
+# 	Assumes the partition being input has the following keys containing data similar to below:
+# 	['device'] = "LABEL=VARBE1"
+# 	['new_uuid'] = "UUID=FFFFFFFFFFFFFFFFFFFF"
+# 	['fstype'] = "ext3"
+# 	['mountpoint'] = "/var"
+#
+# 	Only handles xfs and ext formats.
+# 	The btrfs will remain with it's UUID mount reference
+# 	"""
+# 	return_code = 0
+# 	label = partition['device'].split('=')[1]
+# 	# In sles 11 it uses the /dev/disk/by-id/
+# 	new_id = partition['new_uuid']
+# 	# In sles 12 it uses the uuid=, we need to add the /dev/disk/by-uuid onto the string
+# 	if 'uuid=' in partition['new_uuid'].lower():
+# 		new_id = partition['new_uuid'].split('=')[1]
+# 		new_id = '/dev/disk/by-uuid/%s' % new_id
+# 	if 'ext' in partition['fstype'].lower():
+# 		return_code = subprocess.call(['e2label', new_id, '%s' % label])
+# 	if 'xfs' in partition['fstype'].lower():
+# 		# This better be unmount or we will have issues.
+# 		# edit the partition
+# 		return_code = subprocess.call(['xfs_admin', '-L', '%s' % label, new_id])
+# 	return return_code
 
 
 def main():
@@ -176,7 +223,13 @@ def main():
 	edit_old_fstab(new_fstab, old_fstab)
 	edit_new_fstab(partitions_to_label)
 	merge_fstabs()
-	mount_old_partitions()
+	# We need to unmount everything so we can be sure sub-mounts are correct
+	# umount_partitions()
+	# for each_partition in partitions_to_label:
+	# 	if len(each_partition) == 5:
+	# 		label_partition(each_partition)
+	# Now that we can mount in the correct order
+	# mount_partitions()
 	shutil.copy(tmp_fstab_file, new_fstab_file)
 	# Need output of the partitions_to_label to be utilized for post autoyast script.
 	if not os.path.exists('/tmp/fstab_info'):
