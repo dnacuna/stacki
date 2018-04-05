@@ -469,7 +469,11 @@ def getHostFstab(disks):
 
 host_disks = getHostDisks()
 
-count = 5
+#
+# wait up to one minute for the disk devices to be exported to linux after a hardware
+# disk array controller has been reconfigured
+#
+count = 60
 while count > 0:
 	if len(host_disks) == 0:
 		time.sleep(1)
