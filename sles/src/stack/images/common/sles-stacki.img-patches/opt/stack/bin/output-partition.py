@@ -14,7 +14,6 @@ The fix_fstab.py runs during install-post to gather data for fix_partitions.py a
 The fix_partitions.py runs during F10-a-fix-partitions to edit the partition labels as needed to match the new
 /mnt/etc/fstab.
 """
-
 import shlex
 import subprocess
 import sys
@@ -42,6 +41,7 @@ partitioning_config.set('config:type', 'list')
 #
 # functions
 #
+
 
 def get_nukes(host_disks, to_nuke, nuke_list):
 	"""Return a list of disks to nuke, as the use may want to nuke /dev/sdc, but not /dev/sdb."""
@@ -81,53 +81,55 @@ def nuke_it(disk):
 
 
 def partition_init_path(element_partition, initialize, partition, partition_id):
+	"""Determine XML for properties involving drive being formatted.
 
+	If not being formatted, it still adds the create false tag."""
 	element_create = ElementTree.SubElement(element_partition, 'create')
 	element_create.text = '%s' % str(initialize).lower()
 	element_create.set('config:type', 'boolean')
-	# xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % initialize)
 
 	if initialize:
 		if partition['size'] == 0:
 			ElementTree.SubElement(element_partition, 'size').text = 'max'
-			# xml_partitions.append('\t\t\t\t<size>max</size>')
 		else:
 			ElementTree.SubElement(element_partition, 'size').text = '%dM' % partition['size']
-			# xml_partitions.append('\t\t\t\t<size>%dM</size>' % partition['size'])
 
 	if initialize and partition_id:
 		element_partition_id = ElementTree.SubElement(element_partition, 'partition_id')
 		element_partition_id.text = '%s' % partition_id
 		element_partition_id.set('config:type', 'integer')
-		# xml_partitions.append('\t\t\t\t<partition_id config:type="integer">%s</partition_id>' % partition_id)
+
 
 def partition_mount_label(element_partition, initialize, partition, mnt, label):
+	"""Determine XML properties for partition mounted by label.
+
+	Note: Label does not work if formatting partition, but not initializing drive, as label is lost during reformat,
+	even if specified. Using fix_fstab.py + fix_partition.py corrects this issue"""
 	if mnt:
 		element_mountby = ElementTree.SubElement(element_partition, 'mountby')
 		element_mountby.text = 'label'
 		element_mountby.set('config:type', 'symbol')
-		# xml_partitions.append('\t\t\t\t<mountby config:type="symbol">label</mountby>')
 	if initialize:
 		ElementTree.SubElement(element_partition, 'label').text = '%s' % label
-		# xml_partitions.append('\t\t\t\t<label>%s</label>' % label)
 	else:
 		element_partition_nr = ElementTree.SubElement(element_partition, 'partition_nr')
 		element_partition_nr.text = '%s' % partition['partnumber']
 		element_partition_nr.set('config:type', 'integer')
 
-		# xml_partitions.append('\t\t\t\t<partition_nr config:type="integer">%s</partition_nr>' % partition['partnumber'])
-		# xml_partitions.append('\t\t\t\t<create config:type="boolean">%s</create>' % initialize)
 
 def partition_mount_uuid(element_partition, initialize, partition, mnt, format_partition):
+	"""Determine XML properties for partition mounted by UUID.
+
+	Used when no label is provided. If Autoyast is left to its own devices it will use /dev/disk/by-id/, which is not
+	preferred. Although fix_fstab.py and fix_partition.py should be able to handle this scenario.
+	"""
 	if mnt:
 		element_mountby = ElementTree.SubElement(element_partition, 'mountby')
 		element_mountby.text = 'uuid'
 		element_mountby.set('config:type', 'symbol')
-		# xml_partitions.append('\t\t\t\t<mountby config:type="symbol">uuid</mountby>')
 
 	if not format_partition and 'uuid' in partition:
 		ElementTree.SubElement(element_partition, 'uuid').text = '%s' % partition['uuid']
-		# xml_partitions.append('\t\t\t\t<uuid>%s</uuid>' % partition['uuid'])
 	elif format_partition and not initialize and 'partnumber' in partition:
 		#
 		# we are reusing a partition, and we are reformatting
@@ -138,27 +140,23 @@ def partition_mount_uuid(element_partition, initialize, partition, mnt, format_p
 		element_partition_nr = ElementTree.SubElement(element_partition, 'partition_nr')
 		element_partition_nr.text = '%s' % partition['partnumber']
 		element_partition_nr.set('config:type', 'integer')
-		# xml_partitions.append('\t\t\t\t<partition_nr config:type="integer">%s</partition_nr>' % partition['partnumber'])
 
-def partition_fs_type(element_partition, initialize, partition, format_partition):
+
+def partition_fs_type(element_partition, partition, format_partition):
+	"""Determine XML filesystem type to format the partition to."""
 	if format_partition:
 		element_filesystem = ElementTree.SubElement(element_partition, 'filesystem')
 		element_filesystem.text = '%s' % partition['fstype']
 		element_filesystem.set('config:type', 'symbol')
-	# xml_partitions.append('\t\t\t\t<filesystem config:type="symbol">%s</filesystem>' % partition['fstype'])
 
 	element_format = ElementTree.SubElement(element_partition, 'format')
 	element_format.text = '%s' % str(format_partition).lower()
 	element_format.set('config:type', 'boolean')
 
 
-# xml_partitions.append('\t\t\t\t<format config:type="boolean">%s</format>' % format_partition)
-
 def output_partition(partition, initialize, element_partition_list):
 	"""Build partition xml for the partition provided.
 	Return True if there is enough data to build partition, else return False"""
-	xml_partitions = []
-
 	#
 	# if there is no mountpoint and we are not creating this partition,
 	# then there is nothing to do
@@ -196,26 +194,19 @@ def output_partition(partition, initialize, element_partition_list):
 	else:
 		format_partition = initialize
 	element_partition = ElementTree.SubElement(element_partition_list, 'partition')
-	# xml_partitions.append('\t\t\t<partition>')
 	partition_init_path(element_partition, initialize, partition, partition_id)
 	if mnt:
 		ElementTree.SubElement(element_partition, 'mount').text = '%s' % mnt
-		# xml_partitions.append('\t\t\t\t<mount>%s</mount>' % mnt)
 	if partition['fstype']:
-		partition_fs_type(element_partition, initialize, partition, format_partition)
+		partition_fs_type(element_partition, partition, format_partition)
 	if primary or (mnt in ['/', '/boot', '/boot/efi'] and initialize):
 		ElementTree.SubElement(element_partition, 'partition_type').text = 'primary'
-		# xml_partitions.append('\t\t\t\t<partition_type>primary</partition_type>')
 	# If we are formatting the partition, and not initializing the whole drive, use UUID instead of label.
 	# Autoyast tries to use the old label for bootloader, after it already formatted and removed the label.
 	if label and not (format_partition and not initialize):
 		partition_mount_label(element_partition, initialize, partition, mnt, label)
 	else:
 		partition_mount_uuid(element_partition, initialize, partition, mnt, format_partition)
-	# During a reinstall, drop the partitions that aren't being formatted.
-	# if not initialize and not format_partition:
-	# 	element_partition_list.remove(element_partition)
-	# xml_partitions.append('\t\t\t</partition>')
 	return len(element_partition) > 0
 
 
@@ -234,7 +225,7 @@ def sort_part_id(entry):
 def do_partitions(disk, initialize, element_partition_list):
 	"""Determine how to output the partition xml for the disk provided.
 	If any partitions can be created for the disk, return True"""
-	xml_partitions = []
+	partitions_exist = []
 
 	if initialize:
 		#
@@ -254,9 +245,9 @@ def do_partitions(disk, initialize, element_partition_list):
 	for each_partition in partitions:
 		if each_partition['device'] != disk:
 			continue
-		xml_partitions.append(output_partition(each_partition, initialize, element_partition_list))
+		partitions_exist.append(output_partition(each_partition, initialize, element_partition_list))
 		# print(ElementTree.tostring(partitioning_config).decode())
-	return any(xml_partitions)
+	return any(partitions_exist)
 
 
 def output_disk(disk, initialize):
@@ -278,14 +269,6 @@ def output_disk(disk, initialize):
 		# only output XML configuration for this disk if there is partitioning
 		# configuration for this disk
 		partitioning_config.remove(element_drive)
-
-	# print('\t<drive>')
-	# print('\t\t<device>/dev/%s</device>' % disk)
-	# print('\t\t<disklabel>%s</disklabel>' % disklabel)
-	# print('\t\t<initialize config:type="boolean">%s</initialize>' % initialize)
-	# print('\t\t<partitions config:type="list">')
-	# for p in xml_partitions:
-	# 	print('%s' % p)
 
 	return
 
