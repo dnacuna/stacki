@@ -28,22 +28,10 @@ cat /tmp/stacki-profile.xml | \
 	PYTHONPATH= LD_LIBRARY_PATH=/opt/stack/lib /opt/stack/bin/stack list host profile hash=y \
 	2>> /mnt/tmp/install.hash \
 	> /dev/null
-
-touch /tmp/wait
-while [ -f /tmp/wait ]
-do
-	sleep 1
-done
 </stack:script>
 
 <stack:script stack:stage="install-post" cond="os == 'sles'">
 cat /tmp/install.hash >> /opt/stack/etc/install.hash
-
-touch /tmp/wait
-while [ -f /tmp/wait ]
-do
-	sleep 1
-done
 </stack:script>
 
 
