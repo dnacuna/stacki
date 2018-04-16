@@ -28,6 +28,8 @@ try:
 except:
 	pass
 
+# to include IB information, load ib_ipoib driver
+subprocess.call("/sbin/modprobe","ib_ipoib")
 #
 # get the interfaces
 #
