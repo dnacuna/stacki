@@ -1,4 +1,5 @@
 YUMLIST = MegaCLI storcli \
+	ipmitool	\
 	stack-command \
 	stack-pylib	\
 	stack-storage-config \
