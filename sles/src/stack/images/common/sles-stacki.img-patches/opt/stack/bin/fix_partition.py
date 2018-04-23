@@ -9,6 +9,7 @@
 Called after autoyast does partition, but before any RPMs are installed to the chroot environment.
 Fixes the autoyast partitioning if nukedisks=False
 Replaces UUID with LABEL then saves variable 'partitions_to_label' for fix_partition to use later
+Called Python with -E, as that's super subtle
 """
 import sys
 import subprocess
@@ -42,20 +43,20 @@ def label_partition(partition):
 	if 'uuid=' in partition['new_uuid'].lower():
 		new_id = partition['new_uuid'].split('=')[1]
 		new_id = '/dev/disk/by-uuid/%s' % new_id
-	if 'ext' in partition['fstype'].lower():
+	if partition['fstype'].lower().startswith('ext'):
 		return_code = subprocess.run(['e2label', new_id, '%s' % label]).returncode
-	if 'xfs' in partition['fstype'].lower():
+	if partition['fstype'].lower().startswith('xfs'):
 		# This better be unmount or we will have issues.
 		# edit the partition
 		return_code = subprocess.run(['xfs_admin', '-L', '%s' % label, new_id]).returncode
 	return return_code
 
 
-def main():
+if __name__ == "__main__":
 	"""Main function."""
 	for each_partition in partitions_to_label:
+		# based on the fix_fstab code output, we will only have enough data to safely relabel a partition if
+		# we have all 5 variable keys required. ['device'] ['new_uuid'] ['fstype'] ['new_fstype'] ['mountpoint']
 		if len(each_partition) == 5:
 			label_partition(each_partition)
 
-
-main()

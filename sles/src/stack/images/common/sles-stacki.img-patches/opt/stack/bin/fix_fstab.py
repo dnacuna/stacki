@@ -10,6 +10,7 @@ Called after autoyast does RPM installs.
 Fixes the autoyast partitioning if nukedisks=False
 Replaces UUID with LABEL then saves variable 'partitions_to_label' for fix_partition to use later
 Merges the old fstab that contains unformatted existing partitions with the new fstab from yast.
+Called Python with -E, as that's super subtle
 """
 import sys
 import subprocess
@@ -65,22 +66,20 @@ def get_host_fstab():
 	"""
 	host_fstab = []
 	if os.path.exists(new_fstab_file):
-		file = open(new_fstab_file)
+		with open(new_fstab_file) as file:
+			for line in file.readlines():
+				entry = {}
+				# Yank out any comments in fstab:
+				if '#' in line:
+					line = line.split('#')[0]
+				split_line = line.split()
+				if len(split_line) < 3:
+					continue
+				entry['device'] = split_line[0].strip()
+				entry['mountpoint'] = split_line[1].strip()
+				entry['fstype'] = split_line[2].strip()
 
-		for line in file.readlines():
-			entry = {}
-
-			split_line = line.split()
-			if len(split_line) < 3:
-				continue
-
-			entry['device'] = split_line[0].strip()
-			entry['mountpoint'] = split_line[1].strip()
-			entry['fstype'] = split_line[2].strip()
-
-			host_fstab.append(entry)
-
-		file.close()
+				host_fstab.append(entry)
 
 	return host_fstab
 
@@ -150,7 +149,7 @@ def merge_fstabs():
 				shutil.copyfileobj(old_file, new_file)
 
 
-def main():
+if __name__ == "__main__":
 	"""Main function."""
 	new_fstab = get_host_fstab()
 	partitions_to_label = get_existing_labels(new_fstab, old_fstab)
@@ -163,6 +162,3 @@ def main():
 		os.makedirs('/tmp/fstab_info')
 	with open('/tmp/fstab_info/__init__.py', 'a') as fstab_info:
 		fstab_info.write('partitions_to_label = %s\n\n' % partitions_to_label)
-
-
-main()

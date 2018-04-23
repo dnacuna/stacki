@@ -13,6 +13,7 @@ When we want to do a reinstall and keep data disks (nukedisks=False) we need to 
 The fix_fstab.py runs during install-post to gather data for fix_partitions.py and edit the /mnt/etc/fstab file
 The fix_partitions.py runs during F10-a-fix-partitions to edit the partition labels as needed to match the new
 /mnt/etc/fstab.
+Called Python with -E, as that's super subtle
 """
 import shlex
 import subprocess
@@ -286,7 +287,6 @@ def get_host_disks():
 		# Ignore empty lines
 		if not l.strip():
 			continue
-
 		#
 		# Skip read-only and removable devices
 		#
@@ -439,23 +439,22 @@ def get_host_fstab(disks):
 			os.system('mount /dev/%s %s' % (d, mountpoint) + ' > /dev/null 2>&1')
 
 			if os.path.exists(fstab):
-				file = open(fstab)
+				with open(fstab) as file:
+					for line in file.readlines():
+						entry = {}
+						# Yank out any comments in fstab:
+						if '#' in line:
+							line = line.split('#')[0]
+						split_line = line.split()
+						if len(split_line) < 3:
+							continue
 
-				for line in file.readlines():
-					entry = {}
+						entry['device'] = split_line[0].strip()
+						entry['mountpoint'] = split_line[1].strip()
+						entry['fstype'] = split_line[2].strip()
 
-					split_line = line.split()
-					if len(split_line) < 3:
-						continue
-
-					entry['device'] = split_line[0].strip()
-					entry['mountpoint'] = split_line[1].strip()
-					entry['fstype'] = split_line[2].strip()
-
-					host_fstab.append(entry)
-
-				file.close()
-				# We may need the fstab file for post-install
+						host_fstab.append(entry)
+					# We may need the fstab file for post-install
 				if not os.path.exists(fs_info):
 					os.makedirs(fs_info)
 				copy(fstab, fs_info)
@@ -481,7 +480,7 @@ def prettify(element):
 	return reparsed.toprettyxml(indent="\t")
 
 
-def main():
+if __name__ == "__main__":
 	"""Where the magic begins."""
 	global host_partitions
 	global csv_partitions
@@ -557,10 +556,12 @@ def main():
 	# if host_fstab is an empty list, turning on nukedisks=True" to avoid SLES defaults
 	if host_fstab == []:
 		nuke_disks = True
+		attributes['nukedisks'] = True
 	elif 'nukedisks' in attributes:
 		nuke_disks = str2bool(attributes['nukedisks'])
 	else:
 		nuke_disks = False
+		attributes['nukedisks'] = False
 
 	if not nuke_disks:
 		# Need output of the existing fstab to be utilized for post-install script.
@@ -589,5 +590,3 @@ def main():
 
 	print(prettify(partitioning_config))
 
-
-main()
