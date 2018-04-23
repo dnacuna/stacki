@@ -148,8 +148,7 @@ def merge_fstabs():
 			with open(each_file, 'rb') as old_file:
 				shutil.copyfileobj(old_file, new_file)
 
-
-if __name__ == "__main__":
+def main():
 	"""Main function."""
 	new_fstab = get_host_fstab()
 	partitions_to_label = get_existing_labels(new_fstab, old_fstab)
@@ -162,3 +161,6 @@ if __name__ == "__main__":
 		os.makedirs('/tmp/fstab_info')
 	with open('/tmp/fstab_info/__init__.py', 'a') as fstab_info:
 		fstab_info.write('partitions_to_label = %s\n\n' % partitions_to_label)
+
+if __name__ == "__main__":
+	main()

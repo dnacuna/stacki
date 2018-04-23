@@ -479,8 +479,7 @@ def prettify(element):
 	reparsed = xml.dom.minidom.parseString(rough_string)
 	return reparsed.toprettyxml(indent="\t")
 
-
-if __name__ == "__main__":
+def main():
 	"""Where the magic begins."""
 	global host_partitions
 	global csv_partitions
@@ -590,3 +589,6 @@ if __name__ == "__main__":
 
 	print(prettify(partitioning_config))
 
+
+if __name__ == "__main__":
+	main()

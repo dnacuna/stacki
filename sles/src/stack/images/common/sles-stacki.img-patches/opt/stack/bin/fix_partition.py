@@ -51,8 +51,7 @@ def label_partition(partition):
 		return_code = subprocess.run(['xfs_admin', '-L', '%s' % label, new_id]).returncode
 	return return_code
 
-
-if __name__ == "__main__":
+def main():
 	"""Main function."""
 	for each_partition in partitions_to_label:
 		# based on the fix_fstab code output, we will only have enough data to safely relabel a partition if
@@ -60,3 +59,6 @@ if __name__ == "__main__":
 		if len(each_partition) == 5:
 			label_partition(each_partition)
 
+
+if __name__ == "__main__":
+	main()
