@@ -71,6 +71,27 @@ for line in output.split('\n'):
 			interface_number += 1
 
 #
+# get the make/model of the installing server
+#
+p = subprocess.Popen([ '/usr/sbin/dmidecode', '-s', 'system-manufacturer' ],
+	stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+o, e = p.communicate()
+try:
+	curlcmd.append('--header')
+	curlcmd.append('X-STACKI-MAKE: %s' % o.strip())
+except:
+	pass
+
+p = subprocess.Popen([ '/usr/sbin/dmidecode', '-s', 'system-product-name' ],
+	stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+o, e = p.communicate()
+try:
+	curlcmd.append('--header')
+	curlcmd.append('X-STACKI-MODEL: %s' % o.strip())
+except:
+	pass
+
+#
 # get the number of CPUs
 #
 numcpus = 0
@@ -105,9 +126,8 @@ if not server:
 		data = {}
 	server = data.get('master')
 
-
-request = 'https://%s/install/sbin/profile.cgi?os=sles&arch=x86_64&np=%d' % \
-	(server, numcpus)
+querystring = [ 'os=sles', 'arch=x86_64', 'np=%d' % numcpus ]
+request = 'https://%s/install/sbin/profile.cgi?%s' % (server, '&'.join(querystring))
 curlcmd.append(request)
 
 #

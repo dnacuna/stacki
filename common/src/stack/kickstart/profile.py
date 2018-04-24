@@ -258,6 +258,21 @@ if profile_update_macs:
 			[ client.addr ] + params)
 
 #
+# add the 'make' and 'model' to the database
+#
+if 'HTTP_X_STACKI_MAKE' in os.environ:
+	make = os.environ['HTTP_X_STACKI_MAKE']
+	#
+	# XXX - put 'make' in the database
+	#
+
+if 'HTTP_X_STACKI_MODEL' in os.environ:
+	model = os.environ['HTTP_X_STACKI_MODEL']
+	#
+	# XXX - put 'model' in the database
+	#
+
+#
 # Generate the system profile
 #
 client.main()
