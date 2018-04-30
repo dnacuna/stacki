@@ -6,8 +6,8 @@ class Command(stack.commands.remove.command):
 	"""
 	Remove storage partition configuration for a host.
 
-	<arg type='string' name='host' optional='1' repeat='1'>
-	One or more hostnames
+	<arg type='string' name='host' optional='1'>
+	Hostname of the machine
 	</arg>
 	
 	<param type='string' name='device' optional='1'>
